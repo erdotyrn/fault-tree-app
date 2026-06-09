@@ -1,0 +1,174 @@
+{
+  "version": "1.0",
+  "fault_tree": {
+    "name": "ABYS Arızası (Acil Bor Yükleme Sistemi)",
+    "basic_events": {
+      "p1": {
+        "id": "p1",
+        "name": "Pompa A Arızası",
+        "reliability": 0.95,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "p2": {
+        "id": "p2",
+        "name": "Pompa B Arızası",
+        "reliability": 0.95,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "v1": {
+        "id": "v1",
+        "name": "Vana V-101 Sıkışması",
+        "reliability": null,
+        "failure_rate": 0.0003,
+        "time": 8760,
+        "use_time_dependent": true
+      },
+      "v2": {
+        "id": "v2",
+        "name": "Vana V-102 Sıkışması",
+        "reliability": null,
+        "failure_rate": 0.0003,
+        "time": 8760,
+        "use_time_dependent": true
+      },
+      "s1": {
+        "id": "s1",
+        "name": "Basınç Sensörü Arızası",
+        "reliability": 0.998,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "s2": {
+        "id": "s2",
+        "name": "Seviye Sensörü Arızası",
+        "reliability": 0.997,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "e1": {
+        "id": "e1",
+        "name": "Güç Kaynağı Kaybı",
+        "reliability": 0.999,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "e2": {
+        "id": "e2",
+        "name": "Dizel Jeneratör Arızası",
+        "reliability": 0.98,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "k1": {
+        "id": "k1",
+        "name": "Kontrol Kartı Hatası",
+        "reliability": 0.9995,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      }
+    },
+    "gates": {
+      "g_pompa": {
+        "id": "g_pompa",
+        "name": "İki Pompa da Arızalı",
+        "gate_type": "AND",
+        "children": ["p1", "p2"]
+      },
+      "g_vana": {
+        "id": "g_vana",
+        "name": "İki Vana da Sıkışık",
+        "gate_type": "AND",
+        "children": ["v1", "v2"]
+      },
+      "g_debi": {
+        "id": "g_debi",
+        "name": "Bor Akışı Durması",
+        "gate_type": "OR",
+        "children": ["g_pompa", "g_vana"]
+      },
+      "g_sensor": {
+        "id": "g_sensor",
+        "name": "Algılama Başarısızlığı",
+        "gate_type": "AND",
+        "children": ["s1", "s2"]
+      },
+      "g_elektrik": {
+        "id": "g_elektrik",
+        "name": "Toplam Güç Kaybı",
+        "gate_type": "AND",
+        "children": ["e1", "e2"]
+      },
+      "g_kontrol": {
+        "id": "g_kontrol",
+        "name": "Kontrol Sistemi Arızası",
+        "gate_type": "OR",
+        "children": ["g_sensor", "g_elektrik", "k1"]
+      },
+      "g_top": {
+        "id": "g_top",
+        "name": "ABYS Çalışmıyor (Tepe Olay)",
+        "gate_type": "AND",
+        "children": ["g_debi", "g_kontrol"]
+      }
+    },
+    "top_event_id": "g_top"
+  },
+  "event_tree": {
+    "name": "Soğutucu Kaybı Kazası (LOCA)",
+    "initiating_event_name": "Birincil Boru Kırılması",
+    "initiating_event_frequency": 0.001,
+    "branches": [
+      {
+        "id": "b1",
+        "name": "ABYS Devreye Girişi",
+        "basic_event_id": null,
+        "success_probability": 0.98
+      },
+      {
+        "id": "b2",
+        "name": "Çekirdek Soğutma (ECCS)",
+        "basic_event_id": null,
+        "success_probability": 0.95
+      },
+      {
+        "id": "b3",
+        "name": "Konteyment Bütünlüğü",
+        "basic_event_id": null,
+        "success_probability": 0.99
+      },
+      {
+        "id": "b4",
+        "name": "Operatör Müdahalesi",
+        "basic_event_id": null,
+        "success_probability": 0.90
+      }
+    ],
+    "outcome_labels": [
+      "Güvenli Kapatma",
+      "Kontrollü Soğutma",
+      "Sızıntılı Kapatma",
+      "Konteyment Sızıntısı",
+      "ECCS Arıza + Op. Kurtarma",
+      "ECCS Arıza + Konteyment Sağlam",
+      "Kısmi Çekirdek Hasarı",
+      "Çekirdek Erimesi (Konteyment Sağlam)",
+      "ABYS+ECCS Başarılı + Op. Kurtarma",
+      "ABYS Arıza + Konteyment Sağlam",
+      "ABYS+ECCS Arıza + Sızıntı",
+      "ABYS Arıza + Konteyment Kaybı",
+      "Ciddi Kaza + Op. Kurtarma",
+      "Ciddi Kaza + Sınırlı Salınım",
+      "Ağır Çekirdek Hasarı",
+      "Kontrolsüz Salınım (En Kötü Senaryo)"
+    ]
+  }
+}

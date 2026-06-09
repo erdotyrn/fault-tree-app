@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "fault_tree": {
+    "name": "Nuclear Cooling System Failure",
+    "basic_events": {
+      "e1": {
+        "id": "e1",
+        "name": "Primary Pump Failure",
+        "reliability": 0.98,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "e2": {
+        "id": "e2",
+        "name": "Backup Pump Failure",
+        "reliability": 0.97,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "e3": {
+        "id": "e3",
+        "name": "Valve Stuck Closed",
+        "reliability": null,
+        "failure_rate": 0.0005,
+        "time": 8760,
+        "use_time_dependent": true
+      },
+      "e4": {
+        "id": "e4",
+        "name": "Sensor Malfunction",
+        "reliability": 0.995,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      },
+      "e5": {
+        "id": "e5",
+        "name": "Control System Error",
+        "reliability": 0.999,
+        "failure_rate": null,
+        "time": null,
+        "use_time_dependent": false
+      }
+    },
+    "gates": {
+      "g1": {
+        "id": "g1",
+        "name": "Both Pumps Fail",
+        "gate_type": "AND",
+        "children": ["e1", "e2"]
+      },
+      "g2": {
+        "id": "g2",
+        "name": "Instrumentation Failure",
+        "gate_type": "OR",
+        "children": ["e4", "e5"]
+      },
+      "g3": {
+        "id": "g3",
+        "name": "Cooling Loss",
+        "gate_type": "OR",
+        "children": ["g1", "e3"]
+      },
+      "g4": {
+        "id": "g4",
+        "name": "System Failure (Top Event)",
+        "gate_type": "AND",
+        "children": ["g3", "g2"]
+      }
+    },
+    "top_event_id": "g4"
+  },
+  "event_tree": {
+    "name": "Loss of Coolant Accident (LOCA)",
+    "initiating_event_name": "Pipe Break",
+    "initiating_event_frequency": 0.001,
+    "branches": [
+      {
+        "id": "b1",
+        "name": "ECCS Activation",
+        "basic_event_id": null,
+        "success_probability": 0.95
+      },
+      {
+        "id": "b2",
+        "name": "Containment Integrity",
+        "basic_event_id": null,
+        "success_probability": 0.99
+      },
+      {
+        "id": "b3",
+        "name": "Operator Action",
+        "basic_event_id": null,
+        "success_probability": 0.90
+      }
+    ],
+    "outcome_labels": [
+      "Safe Shutdown",
+      "Controlled Release",
+      "Operator Recovery",
+      "Late Containment Failure",
+      "ECCS Failure + Contained",
+      "Partial Core Damage",
+      "Severe Accident",
+      "Unmitigated Release"
+    ]
+  }
+}

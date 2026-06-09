@@ -1,29 +1,29 @@
 name: Windows Build
 
-  on:
-    workflow_dispatch:
+on:
+  workflow_dispatch:
 
-  jobs:
-    build:
-      runs-on: windows-latest
-      steps:
-        - uses: actions/checkout@v4
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
 
-        - uses: actions/setup-python@v5
-          with:
-            python-version: "3.12"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-        - name: Install Graphviz
-          run: choco install graphviz -y
+      - name: Install Graphviz
+        run: choco install graphviz -y
 
-        - name: Install Python dependencies
-          run: pip install PyQt6 graphviz fpdf2 python-docx pyinstaller
+      - name: Install Python dependencies
+        run: pip install PyQt6 graphviz fpdf2 python-docx pyinstaller
 
-        - name: Build exe
-          run: python build_exe.py
+      - name: Build exe
+        run: python build_exe.py
 
-        - name: Upload artifact
-          uses: actions/upload-artifact@v4
-          with:
-            name: HOA-Analizoru-Windows
-            path: dist/
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HOA-Analizoru-Windows
+          path: dist/

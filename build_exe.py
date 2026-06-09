@@ -15,6 +15,10 @@ import shutil
 import platform
 import subprocess
 
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ('utf-8', 'utf8'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 APP_NAME = "HÖA Analizörü"
 ENTRY = "main.py"
 ICON = None  # İsteğe bağlı: "icon.ico" dosyası eklenebilir

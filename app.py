@@ -77,6 +77,17 @@ QHeaderView::section {
     background-color: #e0e0e0; padding: 4px; border: 1px solid #cccccc;
     font-weight: bold;
 }
+QMenuBar {
+    background-color: #f5f5f5; color: #222222;
+    border-bottom: 1px solid #cccccc;
+}
+QMenuBar::item { padding: 4px 10px; }
+QMenuBar::item:selected { background-color: #BBDEFB; }
+QMenu {
+    background-color: #ffffff; color: #222222;
+    border: 1px solid #cccccc;
+}
+QMenu::item:selected { background-color: #BBDEFB; }
 """
 
 # ──────────────────────────────────────────────────────────────────────

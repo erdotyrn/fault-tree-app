@@ -2042,18 +2042,34 @@ class MainWindow(QMainWindow):
 
     def _example_loca_et(self):
         proj = Project()
+
+        ev_trip = BasicEvent(id="ev_trip", name="Reaktör Trip Başarısızlığı",
+                             reliability=0.999)
+        ev_eccs = BasicEvent(id="ev_eccs", name="ECCS Enjeksiyon Arızası",
+                             reliability=0.99)
+        ev_kont = BasicEvent(id="ev_kont", name="Konteyment Yalıtım Kaybı",
+                             reliability=0.995)
+        ev_uvs = BasicEvent(id="ev_uvs", name="Uzun Vadeli Soğutma Arızası",
+                            reliability=0.98)
+        for ev in (ev_trip, ev_eccs, ev_kont, ev_uvs):
+            proj.fault_tree.basic_events[ev.id] = ev
+
         et = proj.event_tree
         et.name = "Büyük LOCA Olay Ağacı"
         et.initiating_event_name = "Büyük Boru Kırılması (LOCA)"
         et.initiating_event_frequency = 1e-4
 
         b1 = EventTreeBranch(id="b1", name="Reaktör Trip",
+                             basic_event_id="ev_trip",
                              success_probability=0.999)
         b2 = EventTreeBranch(id="b2", name="ECCS Enjeksiyonu",
+                             basic_event_id="ev_eccs",
                              success_probability=0.99)
         b3 = EventTreeBranch(id="b3", name="Konteyment Yalıtımı",
+                             basic_event_id="ev_kont",
                              success_probability=0.995)
         b4 = EventTreeBranch(id="b4", name="Uzun Vadeli Soğutma",
+                             basic_event_id="ev_uvs",
                              success_probability=0.98)
         et.branches = [b1, b2, b3, b4]
         et.outcome_labels = [
@@ -2362,6 +2378,16 @@ class MainWindow(QMainWindow):
     def _example_chemical_et(self):
         """Kimyasal tesis sızıntı senaryosu — ETA."""
         proj = Project()
+
+        ev_tespit = BasicEvent(id="ev_tespit", name="Sızıntı Sensörü Arızası",
+                               reliability=0.98)
+        ev_vana = BasicEvent(id="ev_vana", name="Otomatik Vana Arızası",
+                             reliability=0.95)
+        ev_havuz = BasicEvent(id="ev_havuz", name="Havuzlama Sistemi Arızası",
+                              reliability=0.99)
+        for ev in (ev_tespit, ev_vana, ev_havuz):
+            proj.fault_tree.basic_events[ev.id] = ev
+
         et = proj.event_tree
         et.name = "Kimyasal Tesis Sızıntı Senaryosu"
         et.initiating_event_name = "Tank Sızıntısı"
@@ -2369,10 +2395,13 @@ class MainWindow(QMainWindow):
 
         et.branches = [
             EventTreeBranch(id="b1", name="Sızıntı Tespiti",
+                            basic_event_id="ev_tespit",
                             success_probability=0.98),
             EventTreeBranch(id="b2", name="Otomatik Vana Kapanma",
+                            basic_event_id="ev_vana",
                             success_probability=0.95),
             EventTreeBranch(id="b3", name="Havuzlama Sistemi",
+                            basic_event_id="ev_havuz",
                             success_probability=0.99),
         ]
         et.outcome_labels = [

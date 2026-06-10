@@ -17,9 +17,16 @@ import tempfile
 import graphviz
 
 BUNDLED_GRAPHVIZ_BIN = None
+_DOT_PATH = None
 
 def _setup_bundled_graphviz():
-    global BUNDLED_GRAPHVIZ_BIN
+    global BUNDLED_GRAPHVIZ_BIN, _DOT_PATH
+    import shutil
+
+    dot = shutil.which("dot")
+    if dot:
+        _DOT_PATH = dot
+
     if not getattr(sys, 'frozen', False):
         return
 
@@ -42,7 +49,6 @@ def _setup_bundled_graphviz():
     BUNDLED_GRAPHVIZ_BIN = gv_bin
     os.environ['PATH'] = gv_bin + os.pathsep + os.environ.get('PATH', '')
     os.environ['GVBINDIR'] = gv_bin
-    os.environ['GV_FILE_PATH'] = gv_bin
 
     if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
         try:
@@ -50,7 +56,42 @@ def _setup_bundled_graphviz():
         except OSError:
             pass
 
+    dot_name = "dot.exe" if sys.platform == "win32" else "dot"
+    bundled_dot = os.path.join(gv_bin, dot_name)
+    if os.path.isfile(bundled_dot):
+        _DOT_PATH = bundled_dot
+
 _setup_bundled_graphviz()
+
+
+def _render_dot(dot_graph, output_path):
+    """Render a graphviz.Digraph by calling dot directly with full path."""
+    import subprocess
+    source_path = output_path + ".gv"
+    with open(source_path, "w", encoding="utf-8") as f:
+        f.write(dot_graph.source)
+
+    dot_exe = _DOT_PATH
+    if not dot_exe:
+        dot_graph.render(output_path, cleanup=True)
+        return
+
+    env = os.environ.copy()
+    if BUNDLED_GRAPHVIZ_BIN:
+        env['PATH'] = BUNDLED_GRAPHVIZ_BIN + os.pathsep + env.get('PATH', '')
+        env['GVBINDIR'] = BUNDLED_GRAPHVIZ_BIN
+
+    fmt = dot_graph.format or 'png'
+    out_file = output_path + "." + fmt
+    subprocess.run(
+        [dot_exe, f"-T{fmt}", source_path, "-o", out_file],
+        capture_output=True, timeout=30, env=env,
+        cwd=BUNDLED_GRAPHVIZ_BIN if BUNDLED_GRAPHVIZ_BIN else None,
+    )
+    try:
+        os.remove(source_path)
+    except OSError:
+        pass
 
 from models import BasicEvent, EventTree, FaultTree, GateType, SPNode
 
@@ -293,7 +334,7 @@ class FaultTreeVisualizer:
         if output_path is None:
             output_path = os.path.join(tmp_dir, "fault_tree_diagram")
 
-        dot.render(output_path, cleanup=True)
+        _render_dot(dot, output_path)
         return f"{output_path}.{fmt}"
 
 
@@ -363,7 +404,7 @@ class EventTreeVisualizer:
             if output_path is None:
                 output_path = os.path.join(tempfile.gettempdir(),
                                            "event_tree_diagram")
-            dot.render(output_path, cleanup=True)
+            _render_dot(dot, output_path)
             return f"{output_path}.{fmt}"
 
         ie_label = (f"{self.et.initiating_event_name}\n"
@@ -456,7 +497,7 @@ class EventTreeVisualizer:
             output_path = os.path.join(tempfile.gettempdir(),
                                        "event_tree_diagram")
 
-        dot.render(output_path, cleanup=True)
+        _render_dot(dot, output_path)
         return f"{output_path}.{fmt}"
 
 
@@ -616,5 +657,5 @@ class SeriesParallelVisualizer:
         if output_path is None:
             output_path = os.path.join(tempfile.gettempdir(), "sp_diagram")
 
-        dot.render(output_path, cleanup=True)
+        _render_dot(dot, output_path)
         return f"{output_path}.{fmt}"

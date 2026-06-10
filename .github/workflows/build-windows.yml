@@ -16,8 +16,14 @@ jobs:
       - name: Install Graphviz
         run: choco install graphviz -y
 
+      - name: Add Graphviz to PATH
+        run: echo "C:\Program Files\Graphviz\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
       - name: Install Python dependencies
         run: pip install PyQt6 graphviz fpdf2 python-docx pyinstaller
+
+      - name: Verify Graphviz
+        run: dot -V
 
       - name: Build exe
         run: python build_exe.py

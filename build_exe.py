@@ -80,6 +80,14 @@ def build():
                 break
     else:
         dot_path = shutil.which("dot.exe")
+        if not dot_path:
+            for candidate in [
+                r"C:\Program Files\Graphviz\bin\dot.exe",
+                r"C:\Program Files (x86)\Graphviz\bin\dot.exe",
+            ]:
+                if os.path.isfile(candidate):
+                    dot_path = candidate
+                    break
         if dot_path:
             gv_dir = os.path.dirname(dot_path)
             gv_root = os.path.dirname(gv_dir)

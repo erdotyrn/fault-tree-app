@@ -2775,10 +2775,23 @@ class MainWindow(QMainWindow):
 def _check_graphviz() -> bool:
     import shutil
     import subprocess
-    if shutil.which("dot") is None:
+    from visualization import BUNDLED_GRAPHVIZ_BIN
+
+    dot_path = shutil.which("dot")
+    if dot_path is None and BUNDLED_GRAPHVIZ_BIN:
+        candidate = os.path.join(BUNDLED_GRAPHVIZ_BIN,
+                                 "dot.exe" if sys.platform == "win32" else "dot")
+        if os.path.isfile(candidate):
+            dot_path = candidate
+    if dot_path is None:
         return False
     try:
-        subprocess.run(["dot", "-V"], capture_output=True, timeout=5)
+        env = os.environ.copy()
+        if BUNDLED_GRAPHVIZ_BIN:
+            env['PATH'] = BUNDLED_GRAPHVIZ_BIN + os.pathsep + env.get('PATH', '')
+            env['GVBINDIR'] = BUNDLED_GRAPHVIZ_BIN
+        subprocess.run([dot_path, "-V"], capture_output=True, timeout=5,
+                       env=env, cwd=BUNDLED_GRAPHVIZ_BIN)
         return True
     except Exception:
         return False

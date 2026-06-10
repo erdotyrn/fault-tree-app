@@ -16,17 +16,39 @@ import tempfile
 
 import graphviz
 
+BUNDLED_GRAPHVIZ_BIN = None
+
 def _setup_bundled_graphviz():
-    if getattr(sys, 'frozen', False):
-        base = sys._MEIPASS
-        gv_bin = os.path.join(base, 'graphviz_bin')
-        gv_lib = os.path.join(base, 'graphviz_lib')
-        if os.path.isdir(gv_bin):
-            os.environ['PATH'] = gv_bin + os.pathsep + os.environ.get('PATH', '')
-        if os.path.isdir(gv_lib):
-            os.environ['GVBINDIR'] = gv_lib
-        elif os.path.isdir(gv_bin):
-            os.environ['GVBINDIR'] = gv_bin
+    global BUNDLED_GRAPHVIZ_BIN
+    if not getattr(sys, 'frozen', False):
+        return
+
+    base = sys._MEIPASS
+    gv_bin = os.path.join(base, 'graphviz_bin')
+
+    if not os.path.isdir(gv_bin):
+        exe_dir = os.path.dirname(sys.executable)
+        for candidate in [
+            os.path.join(exe_dir, '_internal', 'graphviz_bin'),
+            os.path.join(exe_dir, 'graphviz_bin'),
+        ]:
+            if os.path.isdir(candidate):
+                gv_bin = candidate
+                break
+
+    if not os.path.isdir(gv_bin):
+        return
+
+    BUNDLED_GRAPHVIZ_BIN = gv_bin
+    os.environ['PATH'] = gv_bin + os.pathsep + os.environ.get('PATH', '')
+    os.environ['GVBINDIR'] = gv_bin
+    os.environ['GV_FILE_PATH'] = gv_bin
+
+    if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
+        try:
+            os.add_dll_directory(gv_bin)
+        except OSError:
+            pass
 
 _setup_bundled_graphviz()
 

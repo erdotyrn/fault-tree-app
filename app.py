@@ -2734,7 +2734,14 @@ class MainWindow(QMainWindow):
 
 def _check_graphviz() -> bool:
     import shutil
-    return shutil.which("dot") is not None
+    import subprocess
+    if shutil.which("dot") is None:
+        return False
+    try:
+        subprocess.run(["dot", "-V"], capture_output=True, timeout=5)
+        return True
+    except Exception:
+        return False
 
 
 def run():
@@ -2744,12 +2751,20 @@ def run():
     window.show()
 
     if not _check_graphviz():
+        import platform
+        if platform.system() == "Windows":
+            install_msg = ("Kurmak için:\n"
+                           "  https://graphviz.org/download/\n"
+                           "  adresinden Graphviz'i indirip kurun.\n\n"
+                           "Kurulu ise DLL dosyaları eksik olabilir.")
+        else:
+            install_msg = ("Kurmak için:\n"
+                           "  sudo apt install graphviz")
         QMessageBox.warning(
-            window, "Graphviz Bulunamadı",
-            "Graphviz (dot) sisteminizde kurulu değil.\n"
+            window, "Graphviz Çalışmıyor",
+            "Graphviz (dot) çalıştırılamıyor.\n"
             "Diyagramlar oluşturulamayacak.\n\n"
-            "Kurmak için:\n"
-            "  sudo apt install graphviz\n\n"
+            f"{install_msg}\n\n"
             "Hesaplama ve sonuçlar yine de çalışacaktır.")
 
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):

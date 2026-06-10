@@ -25,6 +25,8 @@ def _setup_bundled_graphviz():
             os.environ['PATH'] = gv_bin + os.pathsep + os.environ.get('PATH', '')
         if os.path.isdir(gv_lib):
             os.environ['GVBINDIR'] = gv_lib
+        elif os.path.isdir(gv_bin):
+            os.environ['GVBINDIR'] = gv_bin
 
 _setup_bundled_graphviz()
 
@@ -174,33 +176,54 @@ class FaultTreeVisualizer:
         self.ft = fault_tree
         self.results = results or {}
 
+    @staticmethod
+    def _html_escape(text: str) -> str:
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def _gate_html_label(self, gate, gid: str) -> str:
+        is_top = (gid == self.ft.top_event_id)
+        color = self.TOP_COLOR if is_top else self.GATE_COLORS.get(
+            gate.gate_type, "#333333")
+        if gate.gate_type == GateType.VOTE:
+            type_text = f"{gate.vote_k}/{len(gate.children)}"
+        elif gate.gate_type == GateType.AND:
+            type_text = "AND"
+        else:
+            type_text = "OR"
+        name = self._html_escape(gate.name)
+        if len(name) > 24:
+            name = name[:22] + "…"
+        rows = (f'<TR><TD><FONT POINT-SIZE="14" COLOR="white">'
+                f'<B>{type_text}</B></FONT></TD></TR>'
+                f'<TR><TD><FONT POINT-SIZE="9" COLOR="#222222">'
+                f'<B>{name}</B></FONT></TD></TR>')
+        if gid in self.results:
+            fp = self.results[gid]["failure_probability"]
+            r = self.results[gid]["reliability"]
+            rows += (f'<TR><TD><FONT POINT-SIZE="8" COLOR="#FFCCCC">'
+                     f'F = {fp:.4e}</FONT></TD></TR>'
+                     f'<TR><TD><FONT POINT-SIZE="8" COLOR="#CCFFCC">'
+                     f'R = {r:.4e}</FONT></TD></TR>')
+        return (f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="2" '
+                f'BGCOLOR="{color}">{rows}</TABLE>>')
+
+    def _event_html_label(self, event) -> str:
+        name = self._html_escape(event.name)
+        if len(name) > 18:
+            name = name[:16] + "…"
+        r = event.get_reliability()
+        fp = event.get_failure_probability()
+        return (f'<<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="1">'
+                f'<TR><TD><FONT POINT-SIZE="9" COLOR="white">'
+                f'<B>{name}</B></FONT></TD></TR>'
+                f'<TR><TD><FONT POINT-SIZE="8" COLOR="white">'
+                f'R = {r:.4e}</FONT></TD></TR>'
+                f'<TR><TD><FONT POINT-SIZE="8" COLOR="white">'
+                f'F = {fp:.4e}</FONT></TD></TR>'
+                f'</TABLE>>')
+
     def render(self, output_path: str | None = None, fmt: str = "png") -> str:
         tmp_dir = tempfile.gettempdir()
-
-        gate_imgs = {}
-        for gid, gate in self.ft.gates.items():
-            is_top = (gid == self.ft.top_event_id)
-            color = self.TOP_COLOR if is_top else self.GATE_COLORS.get(
-                gate.gate_type, "#333333")
-            prob_lines = []
-            if gid in self.results:
-                fp = self.results[gid]["failure_probability"]
-                r = self.results[gid]["reliability"]
-                prob_lines = [f"F = {fp:.4e}", f"R = {r:.4e}"]
-            img_path = os.path.join(tmp_dir, f"ft_gate_{gid}.png")
-            _create_gate_png(gate.gate_type, color, gate.name, prob_lines,
-                             img_path, vote_k=gate.vote_k,
-                             vote_n=len(gate.children))
-            gate_imgs[gid] = img_path
-
-        event_imgs = {}
-        for eid, event in self.ft.basic_events.items():
-            r = event.get_reliability()
-            fp = event.get_failure_probability()
-            prob_lines = [f"R = {r:.4e}", f"F = {fp:.4e}"]
-            img_path = os.path.join(tmp_dir, f"ft_event_{eid}.png")
-            _create_event_png(event.name, prob_lines, self.EVENT_COLOR, img_path)
-            event_imgs[eid] = img_path
 
         dot = graphviz.Digraph(
             "FaultTree",
@@ -224,11 +247,21 @@ class FaultTreeVisualizer:
             },
         )
 
-        for gid in self.ft.gates:
-            dot.node(gid, label="", shape="none", image=gate_imgs[gid])
+        for gid, gate in self.ft.gates.items():
+            is_top = (gid == self.ft.top_event_id)
+            color = self.TOP_COLOR if is_top else self.GATE_COLORS.get(
+                gate.gate_type, "#333333")
+            shape = "invhouse" if gate.gate_type in (GateType.AND, GateType.VOTE) else "egg"
+            dot.node(gid, label=self._gate_html_label(gate, gid),
+                     shape=shape, style="filled,bold",
+                     fillcolor=color, color="#444444", penwidth="2",
+                     width="1.6", height="1.0")
 
-        for eid in self.ft.basic_events:
-            dot.node(eid, label="", shape="none", image=event_imgs[eid])
+        for eid, event in self.ft.basic_events.items():
+            dot.node(eid, label=self._event_html_label(event),
+                     shape="circle", style="filled",
+                     fillcolor=self.EVENT_COLOR, color="#444444",
+                     penwidth="2", width="1.2", height="1.2")
 
         for gid, gate in self.ft.gates.items():
             for child_id in gate.children:

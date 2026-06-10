@@ -82,13 +82,22 @@ def build():
         dot_path = shutil.which("dot.exe")
         if dot_path:
             gv_dir = os.path.dirname(dot_path)
-            config_files = [
-                f for f in os.listdir(gv_dir)
-                if f.endswith(".dll") or f.startswith("config")
-            ]
-            for cf in config_files:
-                full = os.path.join(gv_dir, cf)
-                add_binary.append(f"--add-binary={full};{gv_dest}")
+            gv_root = os.path.dirname(gv_dir)
+
+            search_dirs = [gv_dir]
+            for sub in ["lib", "lib\\gvc", "lib\\graphviz", "bin"]:
+                candidate = os.path.join(gv_root, sub)
+                if os.path.isdir(candidate) and candidate != gv_dir:
+                    search_dirs.append(candidate)
+
+            for sd in search_dirs:
+                for f in os.listdir(sd):
+                    full = os.path.join(sd, f)
+                    if not os.path.isfile(full):
+                        continue
+                    if f.endswith(".dll") or f.startswith("config"):
+                        add_binary.append(f"--add-binary={full};{gv_dest}")
+            print(f"  Graphviz DLL/config arama dizinleri: {search_dirs}")
 
     cmd = [
         sys.executable, "-m", "PyInstaller",

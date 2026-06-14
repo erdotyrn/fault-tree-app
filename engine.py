@@ -349,9 +349,34 @@ class EventTreeEngine:
     """
 
     def __init__(self, event_tree: EventTree,
-                 basic_events: dict[str, BasicEvent] | None = None):
+                 basic_events: dict[str, BasicEvent] | None = None,
+                 linked_fault_trees: dict | None = None):
         self.et = event_tree
         self.basic_events = basic_events or {}
+        # Library of FaultTree objects that branches may link to (by id).
+        self.linked_fault_trees = linked_fault_trees or {}
+
+    def branch_success_probability(self, branch) -> float:
+        """Resolve a branch's success probability P(S).
+
+        Priority:
+          1. Linked fault tree -> P(S) = 1 - F(top event)   (true ET<->FT link)
+          2. Linked basic event -> P(S) = R(event)
+          3. Direct user value
+          4. Default 0.5
+        """
+        ftid = getattr(branch, "fault_tree_id", None)
+        if ftid and ftid in self.linked_fault_trees:
+            ft = self.linked_fault_trees[ftid]
+            top = FaultTreeEngine(ft).calculate().get("_top_event", {})
+            top_fp = top.get("failure_probability")
+            if top_fp is not None:
+                return 1.0 - top_fp
+        if branch.basic_event_id and branch.basic_event_id in self.basic_events:
+            return self.basic_events[branch.basic_event_id].get_reliability()
+        if branch.success_probability is not None:
+            return branch.success_probability
+        return 0.5
 
     def calculate(self) -> list[dict]:
         """
@@ -373,16 +398,11 @@ class EventTreeEngine:
           - frequency: float
         """
         # Step 1: Resolve success probability for each branch point
-        branch_probs = []
-        for branch in self.et.branches:
-            if branch.basic_event_id and branch.basic_event_id in self.basic_events:
-                # Linked to a basic event: success = reliability of that event
-                p_success = self.basic_events[branch.basic_event_id].get_reliability()
-            elif branch.success_probability is not None:
-                p_success = branch.success_probability
-            else:
-                p_success = 0.5
-            branch_probs.append((branch.name, p_success))
+        # (may come from a linked fault tree, a basic event, or direct input)
+        branch_probs = [
+            (branch.name, self.branch_success_probability(branch))
+            for branch in self.et.branches
+        ]
 
         # Step 2: Enumerate all 2^N outcome sequences
         n = len(branch_probs)

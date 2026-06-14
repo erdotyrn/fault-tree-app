@@ -170,6 +170,10 @@ class EventTreeBranch:
     name: str = ""
     basic_event_id: Optional[str] = None
     success_probability: Optional[float] = None
+    # Optional link to a fault tree in Project.linked_fault_trees. When set,
+    # the branch success probability is computed as 1 - F(top event of that
+    # fault tree), giving a true ET<->FT linkage.
+    fault_tree_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return {
@@ -177,11 +181,15 @@ class EventTreeBranch:
             "name": self.name,
             "basic_event_id": self.basic_event_id,
             "success_probability": self.success_probability,
+            "fault_tree_id": self.fault_tree_id,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "EventTreeBranch":
-        return cls(**data)
+        # Tolerate older project files that lack newer fields.
+        known = {"id", "name", "basic_event_id", "success_probability",
+                 "fault_tree_id"}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 @dataclass
@@ -305,13 +313,20 @@ class Project:
     fault_tree: FaultTree = field(default_factory=FaultTree)
     event_tree: EventTree = field(default_factory=EventTree)
     sp_config: SPConfig = field(default_factory=SPConfig)
+    # Library of named fault trees that event-tree branches can link to.
+    # Key = fault_tree_id (referenced by EventTreeBranch.fault_tree_id),
+    # value = the full FaultTree describing that safety system.
+    linked_fault_trees: dict[str, FaultTree] = field(default_factory=dict)
 
     def save(self, filepath: str) -> None:
         data = {
-            "version": "1.0",
+            "version": "1.1",
             "fault_tree": self.fault_tree.to_dict(),
             "event_tree": self.event_tree.to_dict(),
             "sp_config": self.sp_config.to_dict(),
+            "linked_fault_trees": {
+                k: v.to_dict() for k, v in self.linked_fault_trees.items()
+            },
         }
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -325,4 +340,8 @@ class Project:
         proj.event_tree = EventTree.from_dict(data.get("event_tree", {}))
         if "sp_config" in data:
             proj.sp_config = SPConfig.from_dict(data["sp_config"])
+        proj.linked_fault_trees = {
+            k: FaultTree.from_dict(v)
+            for k, v in data.get("linked_fault_trees", {}).items()
+        }
         return proj

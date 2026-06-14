@@ -13,6 +13,7 @@ Sağ panel: diyagram + sonuçlar (her değişiklikte otomatik güncelleme)
 import os
 import sys
 import math
+import uuid
 import traceback
 
 from PyQt6.QtCore import Qt, QTimer
@@ -26,7 +27,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QAbstractItemView,
     QFileDialog, QMessageBox, QSplitter, QGroupBox,
     QDoubleSpinBox, QStackedWidget, QSizePolicy,
-    QTreeWidget, QTreeWidgetItem,
+    QTreeWidget, QTreeWidgetItem, QInputDialog,
 )
 
 from models import (
@@ -348,12 +349,14 @@ class GateDialog(QDialog):
 
 class BranchDialog(QDialog):
     def __init__(self, branch: EventTreeBranch | None,
-                 basic_events: dict[str, BasicEvent], parent=None):
+                 basic_events: dict[str, BasicEvent],
+                 linked_fault_trees: dict | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Dal Ekle" if branch is None else "Dal Düzenle")
-        self.setMinimumWidth(380)
+        self.setMinimumWidth(420)
         self.branch = branch or EventTreeBranch()
         self.basic_events = basic_events
+        self.linked_fault_trees = linked_fault_trees or {}
         self._build_ui()
         self._load_data()
 
@@ -365,12 +368,15 @@ class BranchDialog(QDialog):
         self.mode_group = QButtonGroup(self)
         self.radio_direct = QRadioButton("Doğrudan P(başarı)")
         self.radio_event = QRadioButton("Temel Olaydan (R)")
+        self.radio_ft = QRadioButton("Hata Ağacından (P = 1 − F_tepe)")
         self.mode_group.addButton(self.radio_direct, 0)
         self.mode_group.addButton(self.radio_event, 1)
+        self.mode_group.addButton(self.radio_ft, 2)
         mode_box = QGroupBox("Olasılık Kaynağı")
         ml = QVBoxLayout(mode_box)
         ml.addWidget(self.radio_direct)
         ml.addWidget(self.radio_event)
+        ml.addWidget(self.radio_ft)
         layout.addRow(mode_box)
 
         self.prob_spin = QDoubleSpinBox()
@@ -387,6 +393,22 @@ class BranchDialog(QDialog):
                 f"{ev.name} (R={ev.get_reliability():.6f})", eid)
         layout.addRow("Temel Olay:", self.event_combo)
 
+        self.ft_combo = QComboBox()
+        self.ft_combo.addItem("— Seçin —", None)
+        for ftid, ft in self.linked_fault_trees.items():
+            try:
+                top = FaultTreeEngine(ft).calculate().get("_top_event", {})
+                fp = top.get("failure_probability")
+                ptxt = f"  → P(başarı)={1 - fp:.6f}" if fp is not None else ""
+            except Exception:
+                ptxt = ""
+            self.ft_combo.addItem(f"{ft.name}{ptxt}", ftid)
+        layout.addRow("Hata Ağacı:", self.ft_combo)
+        if not self.linked_fault_trees:
+            self.radio_ft.setEnabled(False)
+            self.radio_ft.setText(
+                "Hata Ağacından — (önce FT modunda 'Olay Ağacına Bağla')")
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._on_accept)
@@ -396,7 +418,12 @@ class BranchDialog(QDialog):
 
     def _load_data(self):
         self.name_edit.setText(self.branch.name)
-        if self.branch.basic_event_id:
+        if self.branch.fault_tree_id and self.linked_fault_trees:
+            self.radio_ft.setChecked(True)
+            idx = self.ft_combo.findData(self.branch.fault_tree_id)
+            if idx >= 0:
+                self.ft_combo.setCurrentIndex(idx)
+        elif self.branch.basic_event_id:
             self.radio_event.setChecked(True)
             idx = self.event_combo.findData(self.branch.basic_event_id)
             if idx >= 0:
@@ -408,9 +435,9 @@ class BranchDialog(QDialog):
         self._on_mode_changed()
 
     def _on_mode_changed(self):
-        is_event = self.radio_event.isChecked()
-        self.prob_spin.setEnabled(not is_event)
-        self.event_combo.setEnabled(is_event)
+        self.prob_spin.setEnabled(self.radio_direct.isChecked())
+        self.event_combo.setEnabled(self.radio_event.isChecked())
+        self.ft_combo.setEnabled(self.radio_ft.isChecked())
 
     def _on_accept(self):
         name = self.name_edit.text().strip()
@@ -418,16 +445,27 @@ class BranchDialog(QDialog):
             QMessageBox.warning(self, "Uyarı", "Dal adı boş olamaz.")
             return
         self.branch.name = name
-        if self.radio_event.isChecked():
+        if self.radio_ft.isChecked():
+            ftid = self.ft_combo.currentData()
+            if ftid is None:
+                QMessageBox.warning(self, "Uyarı",
+                                    "Lütfen bir hata ağacı seçin.")
+                return
+            self.branch.fault_tree_id = ftid
+            self.branch.basic_event_id = None
+            self.branch.success_probability = None
+        elif self.radio_event.isChecked():
             eid = self.event_combo.currentData()
             if eid is None:
                 QMessageBox.warning(self, "Uyarı",
                                     "Lütfen bir temel olay seçin.")
                 return
             self.branch.basic_event_id = eid
+            self.branch.fault_tree_id = None
             self.branch.success_probability = None
         else:
             self.branch.basic_event_id = None
+            self.branch.fault_tree_id = None
             self.branch.success_probability = self.prob_spin.value()
         self.accept()
 
@@ -613,6 +651,7 @@ class MainWindow(QMainWindow):
         for label, slot in [
             ("Büyük LOCA Senaryosu", self._example_loca_et),
             ("Kimyasal Tesis Sızıntısı", self._example_chemical_et),
+            ("★ LOCA — Hata Ağacına Bağlı (birleşik)", self._example_linked_loca),
         ]:
             a = QAction(label, self)
             a.triggered.connect(slot)
@@ -885,6 +924,19 @@ class MainWindow(QMainWindow):
         tl.addWidget(self._top_combo, 1)
         lay.addWidget(top_grp)
 
+        # Olay ağacına bağlama
+        link_grp = QGroupBox("Olay Ağacı Bağlantısı")
+        ll = QVBoxLayout(link_grp)
+        info = QLabel("Bu hata ağacını bir olay ağacı dalına bağlamak için "
+                      "kaydedin. Dalın P(başarı) = 1 − F(tepe) olur.")
+        info.setWordWrap(True)
+        info.setStyleSheet("color:#555; font-weight:normal;")
+        ll.addWidget(info)
+        b = QPushButton("Bu Hata Ağacını Olay Ağacına Bağla")
+        b.clicked.connect(self._link_ft_to_et)
+        ll.addWidget(b)
+        lay.addWidget(link_grp)
+
         lay.addStretch()
         return w
 
@@ -948,6 +1000,11 @@ class MainWindow(QMainWindow):
         bl.addWidget(b)
         bl.addStretch()
         bl_lay.addLayout(bl)
+
+        b = QPushButton("Bağlı Hata Ağaçları…")
+        b.setStyleSheet("background-color:#6A1B9A;")
+        b.clicked.connect(self._manage_linked_fts)
+        bl_lay.addWidget(b)
         lay.addWidget(br_grp)
 
         lay.addStretch()
@@ -1226,7 +1283,7 @@ class MainWindow(QMainWindow):
             self._clear_diagram()
             return
 
-        engine = EventTreeEngine(et, events)
+        engine = EventTreeEngine(et, events, self.project.linked_fault_trees)
         self._et_outcomes = engine.calculate()
 
         self._outcome_table.blockSignals(True)
@@ -1249,7 +1306,8 @@ class MainWindow(QMainWindow):
         self._outcome_table.blockSignals(False)
 
         try:
-            viz = EventTreeVisualizer(et, self._et_outcomes, events)
+            viz = EventTreeVisualizer(et, self._et_outcomes, events,
+                                      self.project.linked_fault_trees)
             path = viz.render()
             self._show_diagram(path)
         except Exception as e:
@@ -1578,17 +1636,19 @@ class MainWindow(QMainWindow):
         self._ie_name.blockSignals(False)
         self._ie_freq.blockSignals(False)
 
+        linked = self.project.linked_fault_trees
+        resolver = EventTreeEngine(et, events, linked)
         self._branch_table.setRowCount(len(et.branches))
         for row, br in enumerate(et.branches):
-            if br.basic_event_id and br.basic_event_id in events:
+            if br.fault_tree_id and br.fault_tree_id in linked:
+                source = f"Hata Ağacı: {linked[br.fault_tree_id].name}"
+            elif br.basic_event_id and br.basic_event_id in events:
                 source = f"Olay: {events[br.basic_event_id].name}"
-                p_succ = events[br.basic_event_id].get_reliability()
             elif br.success_probability is not None:
                 source = "Doğrudan"
-                p_succ = br.success_probability
             else:
                 source = "—"
-                p_succ = 0.5
+            p_succ = resolver.branch_success_probability(br)
             for col, text in enumerate([br.name, source, f"{p_succ:.6f}"]):
                 self._branch_table.setItem(row, col, QTableWidgetItem(text))
 
@@ -1607,7 +1667,8 @@ class MainWindow(QMainWindow):
                 self, "Uyarı",
                 "En fazla 8 dal desteklenir (2⁸ = 256 sonuç).")
             return
-        dlg = BranchDialog(None, events, parent=self)
+        dlg = BranchDialog(None, events, self.project.linked_fault_trees,
+                           parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             et.branches.append(dlg.get_branch())
             self._refresh_et_panel()
@@ -1621,7 +1682,8 @@ class MainWindow(QMainWindow):
             return
         events = self.project.fault_tree.basic_events
         br = self.project.event_tree.branches[row]
-        dlg = BranchDialog(br, events, parent=self)
+        dlg = BranchDialog(br, events, self.project.linked_fault_trees,
+                           parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self._refresh_et_panel()
             self._auto_calculate()
@@ -1659,6 +1721,137 @@ class MainWindow(QMainWindow):
         self._refresh_et_panel()
         self._branch_table.selectRow(row + 1)
         self._auto_calculate()
+
+    # ── Olay Ağacı ↔ Hata Ağacı bağlantısı ─────────────────────────
+
+    def _link_ft_to_et(self):
+        """Save the current fault tree into the linked-FT library so an
+        event-tree branch can use 1 − F(top) as its success probability."""
+        ft = self.project.fault_tree
+        if not ft.gates or not ft.top_event_id:
+            QMessageBox.warning(
+                self, "Uyarı",
+                "Önce bu modda en az bir kapı ekleyip tepe olay seçin.")
+            return
+        top = FaultTreeEngine(ft).calculate().get("_top_event", {})
+        fp = top.get("failure_probability")
+        if fp is None:
+            QMessageBox.warning(self, "Uyarı",
+                                "Tepe olay hesaplanamadı; ağacı kontrol edin.")
+            return
+
+        default_name = ft.name if ft.name and ft.name != "Fault Tree" \
+            else "Hata Ağacı"
+        name, ok = QInputDialog.getText(
+            self, "Olay Ağacına Bağla",
+            "Bu hata ağacı için bir ad verin\n"
+            f"(tepe F = {fp:.6e}, P(başarı) = {1 - fp:.6f}):",
+            text=default_name)
+        if not ok or not name.strip():
+            return
+
+        copy = FaultTree.from_dict(ft.to_dict())
+        copy.name = name.strip()
+        ftid = "ft_" + str(uuid.uuid4())[:8]
+        self.project.linked_fault_trees[ftid] = copy
+        QMessageBox.information(
+            self, "Bağlandı",
+            f"'{copy.name}' bağlı hata ağaçlarına eklendi.\n\n"
+            f"Olay Ağacı modunda 'Dal Ekle/Düzenle' → 'Hata Ağacından' "
+            f"seçeneğiyle bu ağacı bir dala bağlayabilirsiniz.")
+
+    def _manage_linked_fts(self):
+        linked = self.project.linked_fault_trees
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Bağlı Hata Ağaçları")
+        dlg.resize(520, 360)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Olay ağacı dallarına bağlanabilen hata ağaçları. Bir dalın "
+            "P(başarı) değeri = 1 − F(tepe)."))
+
+        lst = QListWidget()
+        lay.addWidget(lst)
+
+        def reload_list():
+            lst.clear()
+            for ftid, ft in linked.items():
+                try:
+                    fp = FaultTreeEngine(ft).calculate()["_top_event"][
+                        "failure_probability"]
+                    fp_txt = f"F={fp:.4e}, P(S)={1 - fp:.6f}" \
+                        if fp is not None else "hesaplanamadı"
+                except Exception:
+                    fp_txt = "hata"
+                used = sum(1 for b in self.project.event_tree.branches
+                           if b.fault_tree_id == ftid)
+                it = QListWidgetItem(
+                    f"{ft.name}   [{fp_txt}]   — {used} dalda kullanılıyor")
+                it.setData(Qt.ItemDataRole.UserRole, ftid)
+                lst.addItem(it)
+            if not linked:
+                lst.addItem("(Henüz bağlı hata ağacı yok. FT modunda "
+                            "'Olay Ağacına Bağla' ile ekleyin.)")
+
+        reload_list()
+
+        btns = QHBoxLayout()
+        b_load = QPushButton("FT Editörüne Yükle")
+        b_del = QPushButton("Sil")
+        b_del.setObjectName("deleteBtn")
+        b_close = QPushButton("Kapat")
+        btns.addWidget(b_load)
+        btns.addWidget(b_del)
+        btns.addStretch()
+        btns.addWidget(b_close)
+        lay.addLayout(btns)
+
+        def selected_id():
+            it = lst.currentItem()
+            if it is None:
+                return None
+            return it.data(Qt.ItemDataRole.UserRole)
+
+        def do_load():
+            ftid = selected_id()
+            if not ftid or ftid not in linked:
+                return
+            reply = QMessageBox.question(
+                self, "Onay",
+                "Seçili hata ağacı, Hata Ağacı editörüne kopyalanacak "
+                "(mevcut hata ağacının yerini alır). Düzenleyip tekrar "
+                "'Olay Ağacına Bağla' ile kaydedebilirsiniz. Devam?")
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            self.project.fault_tree = FaultTree.from_dict(linked[ftid].to_dict())
+            self._set_mode(self.MODE_FT)
+            dlg.accept()
+
+        def do_delete():
+            ftid = selected_id()
+            if not ftid or ftid not in linked:
+                return
+            used = [b.name for b in self.project.event_tree.branches
+                    if b.fault_tree_id == ftid]
+            msg = f"'{linked[ftid].name}' silinsin mi?"
+            if used:
+                msg += ("\n\nUYARI: Şu dallar bu ağacı kullanıyor ve "
+                        "bağlantıları kaldırılacak:\n• " + "\n• ".join(used))
+            if QMessageBox.question(self, "Onay", msg) \
+                    != QMessageBox.StandardButton.Yes:
+                return
+            for b in self.project.event_tree.branches:
+                if b.fault_tree_id == ftid:
+                    b.fault_tree_id = None
+            del linked[ftid]
+            reload_list()
+            self._refresh_et_panel()
+            self._auto_calculate()
+
+        b_load.clicked.connect(do_load)
+        b_del.clicked.connect(do_delete)
+        b_close.clicked.connect(dlg.accept)
+        dlg.exec()
 
     def _on_outcome_label_changed(self, row: int, col: int):
         if col != 4:
@@ -2331,7 +2524,6 @@ class MainWindow(QMainWindow):
             BasicEvent(id="ha", name="Isı Değ. A Tıkanma", reliability=0.998),
             BasicEvent(id="hb", name="Isı Değ. B Tıkanma", reliability=0.998),
             BasicEvent(id="cv", name="Kontrol Vanası", reliability=0.99),
-            BasicEvent(id="sn", name="Sensör Hatası", reliability=0.999),
             BasicEvent(id="ep", name="Acil Pompa", reliability=0.98),
         ]
         ft.basic_events = {e.id: e for e in events}
@@ -2342,11 +2534,9 @@ class MainWindow(QMainWindow):
                   gate_type=GateType.AND, children=["ha", "hb"])
         g3 = Gate(id="g_normal", name="Normal Soğutma Kaybı",
                   gate_type=GateType.OR, children=["g_pump", "g_hx", "cv"])
-        g4 = Gate(id="g_kontrol", name="Kontrol Sistemi Arızası",
-                  gate_type=GateType.OR, children=["sn"])
         g5 = Gate(id="g_top", name="Soğutma Fonksiyonu Kaybı",
                   gate_type=GateType.AND, children=["g_normal", "ep"])
-        ft.gates = {g.id: g for g in [g1, g2, g3, g4, g5]}
+        ft.gates = {g.id: g for g in [g1, g2, g3, g5]}
         ft.top_event_id = "g_top"
 
         self._load_example(proj, self.MODE_FT, "Reaktör Soğutma Kaybı", """
@@ -2463,6 +2653,105 @@ class MainWindow(QMainWindow):
         <p>Bariyerlerin sırası önemlidir — ilk bariyer başarısız olursa
         sonraki bariyerlerin yükü artar. Etiketler sonuçların ciddiyetini
         gösterir.</p>
+        """)
+
+    def _example_linked_loca(self):
+        """Birleşik örnek: LOCA olay ağacı, dalları gerçek hata ağaçlarına bağlı.
+        Ana hata ağacı = ECCS, böylece FT sekmesi de dolu gelir."""
+        proj = Project()
+
+        # --- Bağlı Hata Ağacı 1: ECCS ---
+        eccs = FaultTree()
+        eccs.name = "ECCS Hata Ağacı"
+        eccs.basic_events = {e.id: e for e in [
+            BasicEvent(id="ec_a", name="ECCS Tren A Arızası", reliability=0.96),
+            BasicEvent(id="ec_b", name="ECCS Tren B Arızası", reliability=0.96),
+            BasicEvent(id="ec_sup", name="Ortak Güç/Besleme Arızası",
+                       reliability=0.995),
+        ]}
+        eccs.gates = {g.id: g for g in [
+            Gate(id="ec_trains", name="Her İki Tren Arızalı",
+                 gate_type=GateType.AND, children=["ec_a", "ec_b"]),
+            Gate(id="ec_top", name="ECCS Enjeksiyon Başarısız",
+                 gate_type=GateType.OR, children=["ec_trains", "ec_sup"]),
+        ]}
+        eccs.top_event_id = "ec_top"
+
+        # --- Bağlı Hata Ağacı 2: Konteyment Soğutma ---
+        cs = FaultTree()
+        cs.name = "Konteyment Soğutma Hata Ağacı"
+        cs.basic_events = {e.id: e for e in [
+            BasicEvent(id="cs_pump", name="Sprey Pompası Arızası",
+                       reliability=0.97),
+            BasicEvent(id="cs_valve", name="İzolasyon Vanası Arızası",
+                       reliability=0.98),
+            BasicEvent(id="cs_hx", name="Isı Atım Arızası", reliability=0.99),
+        ]}
+        cs.gates = {g.id: g for g in [
+            Gate(id="cs_top", name="Konteyment Soğutma Başarısız",
+                 gate_type=GateType.OR,
+                 children=["cs_pump", "cs_valve", "cs_hx"]),
+        ]}
+        cs.top_event_id = "cs_top"
+
+        proj.linked_fault_trees = {"eccs": eccs, "cs": cs}
+        # Ana FT'yi ECCS yap → Hata Ağacı sekmesi açılır açılmaz dolu görünür
+        proj.fault_tree = FaultTree.from_dict(eccs.to_dict())
+
+        # --- Olay Ağacı: dallar farklı kaynaklardan ---
+        et = proj.event_tree
+        et.name = "LOCA — Hata Ağaçlarına Bağlı Olay Ağacı"
+        et.initiating_event_name = "Büyük Boru Kırılması (LOCA)"
+        et.initiating_event_frequency = 1e-4
+        et.branches = [
+            EventTreeBranch(id="lb1", name="Reaktör Trip",
+                            success_probability=0.999),          # doğrudan
+            EventTreeBranch(id="lb2", name="ECCS Enjeksiyonu",
+                            fault_tree_id="eccs"),                # FT'ye bağlı
+            EventTreeBranch(id="lb3", name="Konteyment Soğutma",
+                            fault_tree_id="cs"),                  # FT'ye bağlı
+        ]
+        et.outcome_labels = [
+            "Güvenli Duruş", "Geç Soğutma Kaybı", "Konteyment Aşırı Basınç",
+            "Konteyment + Soğutma Kaybı", "ECCS Yok — Çekirdek Hasarı",
+            "ECCS Yok + Konteyment Kaybı", "Trip Yok — ATWS",
+            "Tam Kayıp (ATWS + ECCS + Konteyment)",
+        ]
+
+        self._load_example(proj, self.MODE_ET,
+                            "LOCA — Bağlı Olay/Hata Ağacı", """
+        <h2 style="color:#6A1B9A;">Birleşik Örnek — Olay Ağacı ↔ Hata Ağacı Bağlantısı</h2>
+        <hr>
+        <h3>Fikir</h3>
+        <p>Gerçek PRA'da bir olay ağacı dalının (güvenlik sistemi) başarısızlık
+        olasılığı, o sistemin <b>hata ağacından</b> gelir. Bu örnekte LOCA olay
+        ağacının iki dalı ayrı hata ağaçlarına bağlıdır:</p>
+        <ul>
+        <li><b>ECCS Enjeksiyonu</b> → "ECCS Hata Ağacı" (tepe olay F'i)</li>
+        <li><b>Konteyment Soğutma</b> → "Konteyment Soğutma Hata Ağacı"</li>
+        <li><b>Reaktör Trip</b> → doğrudan P(başarı) = 0.999</li>
+        </ul>
+        <p>Her dalın <b>P(başarı) = 1 − F(tepe)</b> olarak otomatik hesaplanır.
+        Hata ağacını değiştirirseniz olay ağacı sonuçları kendiliğinden güncellenir
+        — tekrar yazmanıza gerek yok.</p>
+
+        <h3>Sekmeler arasında gezinin</h3>
+        <ul>
+        <li><b>Olay Ağacı</b> sekmesi: LOCA dizilerini ve frekanslarını gösterir.
+        Dal tablosunda "Kaynak" sütununda hangi dalın hangi hata ağacına bağlı
+        olduğunu görürsünüz.</li>
+        <li><b>Hata Ağacı</b> sekmesi: ECCS hata ağacı yüklü gelir (ana ağaç).</li>
+        <li><b>Bağlı Hata Ağaçları…</b> (Olay Ağacı modunda): tüm bağlı ağaçları
+        listeler; istediğinizi FT editörüne yükleyip düzenleyebilirsiniz.</li>
+        </ul>
+
+        <h3>Kendiniz nasıl kurarsınız?</h3>
+        <ol>
+        <li><b>Hata Ağacı</b> modunda sistemin ağacını çizin, tepe olayı seçin.</li>
+        <li>"<b>Bu Hata Ağacını Olay Ağacına Bağla</b>" ile bir ad verip kaydedin.</li>
+        <li><b>Olay Ağacı</b> modunda "Dal Ekle/Düzenle" → "<b>Hata Ağacından</b>"
+        seçeneğiyle dalı o ağaca bağlayın.</li>
+        </ol>
         """)
 
     def _example_pump_station_sp(self):

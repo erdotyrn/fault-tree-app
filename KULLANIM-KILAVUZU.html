@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HOA Analizoru - Kullanim Kilavuzu</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 900px;
+         margin: 24px auto; padding: 0 24px; color: #222; line-height: 1.55; }
+  h1 { color: #0D47A1; border-bottom: 3px solid #0D47A1; padding-bottom: 8px; }
+  h2 { margin-top: 28px; }
+  h3 { margin-top: 22px; }
+  table { margin: 8px 0; }
+  code, .kbd { background:#f0f0f0; padding:1px 5px; border-radius:3px; }
+  .note { background:#E3F2FD; border-left:4px solid #1565C0; padding:10px 14px;
+           margin:16px 0; border-radius:4px; }
+  @media print { body { margin:0; } }
+</style>
+</head>
+<body>
+<h1>HOA Analizoru — Kullanim Kilavuzu</h1>
+<p><i>Hata Agaci (FTA), Olay Agaci (ETA) ve Seri/Paralel guvenilirlik analizi araci.
+NEM412 Risk ve Kaza Analizleri.</i></p>
+
+<div class="note">
+<b>Baslarken:</b> Ust cubuktan analiz turunu secin — <b>Seri/Paralel</b>,
+<b>Hata Agaci</b> veya <b>Olay Agaci</b>. <b>Ornekler</b> menusunden hazir
+projeler yukleyebilirsiniz. Tum sonuclar her degisiklikte otomatik hesaplanir.
+</div>
+
+
+        <h2 style="color: #1565C0;">Kullanım Kılavuzu</h2>
+        <hr>
+
+        <h3 style="color: #B71C1C;">1. Hata Ağacı Analizi (FTA)</h3>
+        <p><b>Amaç:</b> İstenmeyen bir olayın (tepe olay) meydana gelme
+        olasılığını ve kök nedenlerini bulmak.</p>
+
+        <p><b>Adım adım:</b></p>
+        <ol>
+        <li><b>Hata Ağacı</b> moduna geçin (üst çubuk)</li>
+        <li><b>Temel olaylar</b> ekleyin (her biri bir bileşen arızası):
+            <ul>
+            <li><i>Doğrudan:</i> Güvenilirlik R değerini girin (ör: 0.99)</li>
+            <li><i>Zamana bağlı:</i> λ (arıza oranı) ve t (süre) girin →
+            R = e<sup>−λt</sup></li>
+            </ul></li>
+        <li><b>Mantık kapıları</b> ekleyin ve alt elemanlarını seçin:
+            <ul>
+            <li><b>AND:</b> Tüm alt elemanlar arızalanmalı →
+            F = F₁ × F₂ × ... × Fₙ</li>
+            <li><b>OR:</b> Herhangi biri arızalanması yeterli →
+            F = 1 − (1−F₁)(1−F₂)...(1−Fₙ)</li>
+            <li><b>VOTE k/n:</b> n elemandan en az k tanesi arızalanmalı</li>
+            </ul></li>
+        <li><b>Tepe olay</b> olarak bir kapıyı seçin</li>
+        <li>Sonuçlar otomatik hesaplanır:
+            <ul>
+            <li><b>Tepe Olay Olasılığı</b> — F(sistem)</li>
+            <li><b>Minimal Kesim Kümeleri (MCS)</b> — Sistemi tek başına
+            fail ettiren en küçük bileşen kombinasyonları</li>
+            <li><b>Önem Ölçüleri</b> — Hangi bileşen en kritik?
+                <ul>
+                <li><b>FV (Fussell-Vesely):</b> Bileşenin toplam riske katkı oranı</li>
+                <li><b>RAW:</b> Bileşen arızalanırsa risk kaç kat artar</li>
+                <li><b>RRW:</b> Bileşen mükemmel olursa risk kaç kat azalır</li>
+                </ul></li>
+            </ul></li>
+        </ol>
+
+        <h3 style="color: #E65100;">2. Olay Ağacı Analizi (ETA)</h3>
+        <p><b>Amaç:</b> Bir başlatıcı olaydan sonra olası kaza senaryolarını
+        ve frekanslarını belirlemek.</p>
+
+        <p><b>Adım adım:</b></p>
+        <ol>
+        <li><b>Olay Ağacı</b> moduna geçin</li>
+        <li><b>Başlatıcı olay</b> adı ve frekansını girin (ör: LOCA, f = 10⁻⁴/yıl)</li>
+        <li><b>Dallar</b> ekleyin — her biri bir güvenlik bariyeri:
+            <ul>
+            <li>Başarı olasılığı P(S) girin (ör: 0.99)</li>
+            <li>Başarısızlık = 1 − P(S)</li>
+            </ul></li>
+        <li>N dal için 2ᴺ sonuç dizisi otomatik hesaplanır</li>
+        <li>Her sonucun olasılığı = dallar boyunca P'lerin çarpımı</li>
+        <li>Frekans = Başlatıcı olay frekansı × Sonuç olasılığı</li>
+        <li>Sonuç tablolarına etiket yazabilirsiniz (ör: "Güvenli Duruş")</li>
+        </ol>
+
+        <h3 style="color: #1565C0;">3. Seri / Paralel Sistem</h3>
+        <p><b>Amaç:</b> Sistem güvenilirliğini bileşen düzenine göre hesaplamak.</p>
+
+        <p><b>Formüller:</b></p>
+        <table cellpadding="4" cellspacing="0" style="border-collapse: collapse;">
+        <tr style="background: #E3F2FD;">
+            <td style="border: 1px solid #ccc; font-weight: bold;">Seri</td>
+            <td style="border: 1px solid #ccc;">
+            R<sub>sis</sub> = R₁ × R₂ × ... × Rₙ<br>
+            <i>Bir bileşen bozulursa sistem durur</i></td>
+        </tr>
+        <tr>
+            <td style="border: 1px solid #ccc; font-weight: bold;">Paralel</td>
+            <td style="border: 1px solid #ccc;">
+            R<sub>sis</sub> = 1 − (1−R₁)(1−R₂)...(1−Rₙ)<br>
+            <i>Tüm bileşenler bozulursa sistem durur (yedeklilik)</i></td>
+        </tr>
+        </table>
+
+        <p><b>Adım adım:</b></p>
+        <ol>
+        <li><b>Seri/Paralel</b> moduna geçin</li>
+        <li>Kök düğüm tipi Seri veya Paralel olarak ayarlanır</li>
+        <li><b>Bileşen Ekle</b> ile bileşenler ekleyin (ad + R değeri)</li>
+        <li><b>Grup Ekle</b> ile iç içe seri/paralel gruplar oluşturun</li>
+        <li>Sistem güvenilirliği otomatik hesaplanır</li>
+        </ol>
+
+        <h3 style="color: #2E7D32;">Genel İpuçları</h3>
+        <ul>
+        <li>Her değişiklik sonuçları <b>otomatik günceller</b> — hesapla butonuna gerek yok</li>
+        <li><b>Örnekler</b> menüsünden hazır projeler yükleyerek deneyin</li>
+        <li><b>Dosya → PDF Rapor</b> ile tüm sonuçları dışa aktarın</li>
+        <li><b>Büyüt</b> butonuyla diyagramı tam ekran görün</li>
+        <li>Projeler JSON formatında kaydedilir — istediğiniz zaman açabilirsiniz</li>
+        </ul>
+        
+
+<h3 style="color:#6A1B9A;">Modlar Arasi Veri Paylasimi</h3>
+<ul>
+<li><b>Temel Olaylar paylasimlidir:</b> Hata Agaci ve Olay Agaci modlarinda ayni
+olay havuzu kullanilir. Bir olayi (bilesen) bir kez tanimlarsiniz; hem hata
+agacinda yaprak olarak, hem olay agacinda dal olasiligi olarak kullanabilirsiniz.</li>
+<li><b>Mod degistirmek veri silmez:</b> Sekmeler arasinda gecis yaptiginizda
+girdileriniz korunur — ayni projede hem hata agaci hem olay agaci tutabilirsiniz.</li>
+<li>Proje <b>JSON</b> olarak kaydedilir; her uc analiz turu tek dosyada saklanir.</li>
+</ul>
+
+<hr>
+<p style="color:#888; font-size:13px;">PDF icin: tarayicida bu dosyayi acin →
+Yazdir → Hedef olarak "PDF olarak kaydet".</p>
+</body>
+</html>

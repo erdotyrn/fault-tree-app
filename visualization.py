@@ -65,14 +65,22 @@ _setup_bundled_graphviz()
 
 
 def _render_dot(dot_graph, output_path):
-    """Render a graphviz.Digraph by calling dot directly with full path."""
+    """Render a graphviz.Digraph by calling dot directly.
+
+    The DOT source is fed to ``dot`` over stdin and the rendered image is
+    read back from stdout, so Graphviz never has to open a file path itself.
+    This avoids a known Graphviz-on-Windows failure where a temp/output path
+    containing non-ASCII (e.g. Turkish) characters cannot be opened.
+    On error we raise with Graphviz's stderr instead of failing silently,
+    so the GUI can show the real reason.
+    """
     import subprocess
-    source_path = output_path + ".gv"
-    with open(source_path, "w", encoding="utf-8") as f:
-        f.write(dot_graph.source)
+    fmt = dot_graph.format or 'png'
+    out_file = output_path + "." + fmt
 
     dot_exe = _DOT_PATH
     if not dot_exe:
+        # No explicit dot binary found: fall back to the graphviz Python API.
         dot_graph.render(output_path, cleanup=True)
         return
 
@@ -81,17 +89,21 @@ def _render_dot(dot_graph, output_path):
         env['PATH'] = BUNDLED_GRAPHVIZ_BIN + os.pathsep + env.get('PATH', '')
         env['GVBINDIR'] = BUNDLED_GRAPHVIZ_BIN
 
-    fmt = dot_graph.format or 'png'
-    out_file = output_path + "." + fmt
-    subprocess.run(
-        [dot_exe, f"-T{fmt}", source_path, "-o", out_file],
+    result = subprocess.run(
+        [dot_exe, f"-T{fmt}"],
+        input=dot_graph.source.encode("utf-8"),
         capture_output=True, timeout=30, env=env,
         cwd=BUNDLED_GRAPHVIZ_BIN if BUNDLED_GRAPHVIZ_BIN else None,
     )
-    try:
-        os.remove(source_path)
-    except OSError:
-        pass
+    if result.returncode != 0 or not result.stdout:
+        stderr = result.stderr.decode("utf-8", "replace").strip()
+        raise RuntimeError(
+            f"Graphviz dot basarisiz (kod {result.returncode}): {stderr}"
+        )
+
+    # Python yazar; dosya yolu Turkce karakter icerse bile sorun olmaz.
+    with open(out_file, "wb") as f:
+        f.write(result.stdout)
 
 from models import BasicEvent, EventTree, FaultTree, GateType, SPNode
 
@@ -352,22 +364,21 @@ class EventTreeVisualizer:
 
     def __init__(self, event_tree: EventTree,
                  outcomes: list[dict] | None = None,
-                 basic_events: dict[str, BasicEvent] | None = None):
+                 basic_events: dict[str, BasicEvent] | None = None,
+                 linked_fault_trees: dict | None = None):
         self.et = event_tree
         self.outcomes = outcomes or []
         self.basic_events = basic_events or {}
+        self.linked_fault_trees = linked_fault_trees or {}
 
     def _get_branch_probs(self) -> list[tuple[str, float]]:
-        result = []
-        for branch in self.et.branches:
-            if branch.basic_event_id and branch.basic_event_id in self.basic_events:
-                p = self.basic_events[branch.basic_event_id].get_reliability()
-            elif branch.success_probability is not None:
-                p = branch.success_probability
-            else:
-                p = 0.5
-            result.append((branch.name, p))
-        return result
+        # Reuse the engine's resolution so the diagram matches the results
+        # table exactly (including fault-tree-linked branches).
+        from engine import EventTreeEngine
+        resolver = EventTreeEngine(self.et, self.basic_events,
+                                   self.linked_fault_trees)
+        return [(b.name, resolver.branch_success_probability(b))
+                for b in self.et.branches]
 
     def render(self, output_path: str | None = None, fmt: str = "png") -> str:
         branch_probs = self._get_branch_probs()
@@ -554,12 +565,12 @@ class SeriesParallelVisualizer:
         if is_series:
             color = "#1565C0"
             border_style = "rounded,bold"
-            type_label = "── SERİ ──"
+            type_label = "-- SERI --"
             pw = "2.5"
         else:
             color = "#E65100"
             border_style = "rounded,dashed,bold"
-            type_label = "═ PARALEL ═"
+            type_label = "= PARALEL ="
             pw = "3"
 
         group_label = (f'{type_label}  {node.name}\n'
@@ -627,7 +638,7 @@ class SeriesParallelVisualizer:
                 "nodesep": "0.6",
                 "ranksep": "1.2",
                 "bgcolor": "#FAFAFA",
-                "label": (f"Sistem Güvenilirliği:  R = {r_sys:.6e}   |   "
+                "label": (f"Sistem Guvenilirligi:  R = {r_sys:.6e}   |   "
                           f"F = {f_sys:.6e}"),
                 "labelloc": "t",
                 "fontsize": "16",
@@ -639,10 +650,10 @@ class SeriesParallelVisualizer:
                        "arrowhead": "vee"},
         )
 
-        dot.node("IN", "Giriş", shape="circle", style="filled",
+        dot.node("IN", "Giris", shape="circle", style="filled",
                  fillcolor="#1976D2", fontcolor="white", width="0.9",
                  fontname="Helvetica-Bold", penwidth="2")
-        dot.node("OUT", "Çıkış", shape="circle", style="filled",
+        dot.node("OUT", "Cikis", shape="circle", style="filled",
                  fillcolor="#2E7D32", fontcolor="white", width="0.9",
                  fontname="Helvetica-Bold", penwidth="2")
 
